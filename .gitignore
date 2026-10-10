@@ -1,0 +1,5 @@
+# llama.cpp checkout and build made by scripts/build-*.sh
+/llama.cpp/
+# unzipped release binaries
+/bin/
+*.log
