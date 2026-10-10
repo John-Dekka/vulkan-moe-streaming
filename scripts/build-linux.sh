@@ -27,7 +27,9 @@ elif ! git -c core.autocrlf=false apply --reverse --check "$patch" 2>/dev/null; 
     exit 1
 fi
 
+# -ffile-prefix-map: no local folder names inside the binaries (source paths appear in assert messages)
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DGGML_VULKAN=ON -DGGML_NATIVE=ON \
+    -DCMAKE_C_FLAGS="-ffile-prefix-map=$PWD=llama.cpp" -DCMAKE_CXX_FLAGS="-ffile-prefix-map=$PWD=llama.cpp" \
     -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF
 cmake --build build --config Release -j "$(nproc)" --target llama-server llama-cli llama-bench
 

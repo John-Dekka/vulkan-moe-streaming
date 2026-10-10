@@ -1,6 +1,14 @@
+<p align="center">
+  <img src="docs/assets/hero.svg" width="100%" alt="vulkan-moe-streaming: run MoE models bigger than your RAM. A llama.cpp patch that streams experts from your NVMe into RAM and VRAM, built for AMD Radeon and any other Vulkan GPU. 1.9x faster answers, 7x faster prompts, 87 GB model on 32 GB RAM.">
+</p>
+
 # Vulkan MoE Streaming for llama.cpp
 
 **Run Mixture-of-Experts models that are several times bigger than your RAM on an ordinary gaming PC, about twice as fast as stock llama.cpp, on AMD (or any Vulkan) graphics cards.**
+
+<p align="center">
+  <img src="docs/assets/benchmark.svg" width="100%" alt="Benchmark on GLM-5.3-Flash (87 GB), RX 7800 XT, Ryzen 5 7600X, 32 GB RAM. Writing the answer: stock llama.cpp 2.34 tokens/s, vulkan-moe-streaming 4.52 (1.9x). Reading a long prompt: stock 11.3 tokens/s, vulkan-moe-streaming 81.0 (7.2x).">
+</p>
 
 On a PC with an RX 7800 XT (16 GB), a 6-core Ryzen and 32 GB of RAM, the 87 GB GLM-5.3-Flash model went from:
 
@@ -44,6 +52,10 @@ SSD that can do 7 GB/s**. The CPU spends most of every token waiting for it.
 ## What this project does
 
 It's a patch for llama.cpp that takes expert loading away from the operating system:
+
+<p align="center">
+  <img src="docs/assets/how-it-works.svg" width="100%" alt="Diagram: experts flow from the NVMe SSD through 16 parallel reads at 6-9 GB/s into a 12 GB RAM cache computed by the CPU, which also prefetches the next layer; the hottest experts are promoted into a 4 GB VRAM tier computed by the GPU; both feed the next token with one CPU-GPU hand-off per layer. Stock llama.cpp instead pages experts in through mmap at about 1 GB/s.">
+</p>
 
 1. **Its own expert cache in RAM.** The experts used most often stay in memory (12 GB by default), and the
    rarely-used ones are evicted. Windows' file cache no longer holds a second copy.
@@ -160,5 +172,10 @@ patch it builds on. It was tested as described in [docs/benchmarks.md](docs/benc
 
 ## License
 
-MIT, see [LICENSE](LICENSE). The patch modifies llama.cpp, which is MIT-licensed by the ggml authors. Their notice
-is in [LICENSE-llama.cpp](LICENSE-llama.cpp).
+MIT, see [LICENSE](LICENSE).
+
+MIT is the license of everything this builds on: llama.cpp and the streaming patch it started from are both MIT. A
+patch under the same license can be applied, shipped and upstreamed without anyone having to think about license
+compatibility. The ggml authors' notice for llama.cpp is in [LICENSE-llama.cpp](LICENSE-llama.cpp). The README
+images embed subsets of the Space Grotesk and Space Mono fonts, which are under the SIL Open Font License
+([docs/assets/FONTS-OFL.txt](docs/assets/FONTS-OFL.txt)).

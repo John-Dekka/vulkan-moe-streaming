@@ -46,8 +46,10 @@ else
 fi
 
 echo "== building (10-20 minutes, most of it compiling Vulkan shaders)"
+# -ffile-prefix-map: no local folder names inside the exe (source paths appear in assert messages)
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
     -DGGML_VULKAN=ON "${cpu_flags[@]}" -DBUILD_SHARED_LIBS=OFF \
+    -DCMAKE_C_FLAGS="-ffile-prefix-map=$PWD=llama.cpp" -DCMAKE_CXX_FLAGS="-ffile-prefix-map=$PWD=llama.cpp" \
     -DLLAMA_CURL=OFF -DLLAMA_OPENSSL=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF \
     -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++ -static"
 cmake --build build --config Release -j "$(nproc)" --target llama-server llama-cli llama-bench
