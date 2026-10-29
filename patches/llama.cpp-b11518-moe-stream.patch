@@ -1198,10 +1198,10 @@ index 8212447..94700e5 100644
      virtual ~llama_model_base() = default;
 diff --git a/src/llama-moe-stream.cpp b/src/llama-moe-stream.cpp
 new file mode 100644
-index 0000000..7083b2d
+index 0000000..b8e0b6e
 --- /dev/null
 +++ b/src/llama-moe-stream.cpp
-@@ -0,0 +1,2120 @@
+@@ -0,0 +1,2186 @@
 +#include "llama-moe-stream.h"
 +
 +#include "llama-impl.h"
@@ -3132,6 +3132,43 @@ index 0000000..7083b2d
 +                // miss: evict a non-kept slot and queue the load
 +                int32_t v;
 +                while ((v = pick_victim_locked(sl, sl.keep.data())) < 0) {
++                    // safety net: every slot is keep-protected (this wave's hits, borrowed parking,
++                    //   next-wave residents, decode wrap-around prefetch) and nothing is loading, so
++                    //   nobody will ever notify. sacrifice a protected resident outside this wave's
++                    //   demand set - it becomes a demand load for its wave instead of a hang
++                    bool any_loading = false;
++                    for (uint32_t s = 0; s < sl.n_slots; s++) {
++                        if (sl.slot_state[s] == LLAMA_MOE_STREAM_SLOT_LOADING) {
++                            any_loading = true;
++                            break;
++                        }
++                    }
++                    if (!any_loading) {
++                        int32_t sac = -1;
++                        uint32_t hot = UINT32_MAX;
++                        for (uint32_t s = 0; s < sl.n_slots; s++) {
++                            if (sl.slot_state[s] != LLAMA_MOE_STREAM_SLOT_RESIDENT) {
++                                continue;
++                            }
++                            const bool needed = std::find(sl.demand_slots.begin(), sl.demand_slots.end(), (int32_t) s) != sl.demand_slots.end()
++                                || std::find(borrowed.begin(), borrowed.end(), (int32_t) s) != borrowed.end();
++                            if (needed || sl.route_hotness[sl.slot_expert[s]] >= hot) {
++                                continue;
++                            }
++                            hot = sl.route_hotness[sl.slot_expert[s]];
++                            sac = (int32_t) s;
++                        }
++                        if (sac >= 0) {
++                            static std::atomic<int> warned{0};
++                            if (warned.fetch_add(1) < 3) {
++                                LLAMA_LOG_WARN("moe stream: layer %d wave %d: all %u slots protected with no load in flight, "
++                                        "evicting protected expert %d (next wave demand-loads it)\n",
++                                        sl.il, w, sl.n_slots, sl.slot_expert[sac]);
++                            }
++                            v = sac;
++                            break;
++                        }
++                    }
 +                    cv_done.wait(lk);
 +                    if (load_failed) {
 +                        GGML_ABORT("MoE expert streaming: expert load failed (I/O error)");
@@ -3174,7 +3211,7 @@ index 0000000..7083b2d
 +
 +    if (waited) {
 +        const int64_t t0 = ggml_time_us();
-+        cv_done.wait(lk, [&]{
++        while (!cv_done.wait_for(lk, std::chrono::seconds(5), [&]{
 +            if (load_failed) {
 +                return true;
 +            }
@@ -3184,7 +3221,36 @@ index 0000000..7083b2d
 +                }
 +            }
 +            return true;
-+        });
++        })) {
++            if (load_failed) {
++                GGML_ABORT("MoE expert streaming: expert load failed (I/O error)");
++            }
++            // safety net: a demand slot is stuck LOADING while no worker holds work for it - a lost
++            //   work item would idle the pool forever. clear the claimed bits so every part of the
++            //   stuck slots is re-queued (the per-part dedup only works if the bits are cleared)
++            bool any_loading = false;
++            for (uint32_t s = 0; s < sl.n_slots; s++) {
++                if (sl.slot_state[s] == LLAMA_MOE_STREAM_SLOT_LOADING) {
++                    any_loading = true;
++                    break;
++                }
++            }
++            if (!any_loading || !q_demand.empty() || !q_prefetch.empty()) {
++                continue; // work is still moving (or queued): keep waiting
++            }
++            int n_requeue = 0;
++            for (const int32_t s : sl.demand_slots) {
++                if (sl.slot_state[s] != LLAMA_MOE_STREAM_SLOT_RESIDENT && sl.slot_expert[s] >= 0) {
++                    sl.slot_claimed[s] = 0;
++                    enqueue_load_locked(sl, sl.slot_expert[s], s);
++                    n_requeue++;
++                }
++            }
++            if (n_requeue > 0) {
++                LLAMA_LOG_WARN("moe stream: layer %d wave %d: %d demand slot(s) stuck loading with idle workers, re-queued\n",
++                        sl.il, w, n_requeue);
++            }
++        }
 +        if (load_failed) {
 +            GGML_ABORT("MoE expert streaming: expert load failed (I/O error)");
 +        }
